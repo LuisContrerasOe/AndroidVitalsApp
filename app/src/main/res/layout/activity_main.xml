@@ -6,22 +6,29 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
+    android:background="@color/white"
     app:layout_constraintStart_toStartOf="parent"
     android:layout_marginStart="0dp"
     android:layout_marginTop="0dp"
     app:layout_constraintTop_toTopOf="parent"
     android:theme="@style/ThemeOverlay.AppCompat.Light">
 
-    <FrameLayout android:id="@+id/camera_preview"
+    <androidx.camera.view.PreviewView
+        android:id="@+id/viewFinder"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1" />
+
+    <FrameLayout android:id="@+id/microphone_preview"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="0.5" />
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/main"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="0.12">
+        android:layout_weight="0.25">
 
         <Switch
             android:id="@+id/connect_switch"

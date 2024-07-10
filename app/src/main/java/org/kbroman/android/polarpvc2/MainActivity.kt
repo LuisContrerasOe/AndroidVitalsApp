@@ -31,10 +31,33 @@ import java.util.UUID
 import kotlin.math.pow
 import kotlin.math.round
 
+import android.content.ContentValues
+import android.provider.MediaStore
+import androidx.camera.core.ImageCapture
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.core.Preview
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageProxy
+import androidx.camera.video.FallbackStrategy
+import androidx.camera.video.MediaStoreOutputOptions
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.VideoRecordEvent
+import androidx.core.content.PermissionChecker
+import java.nio.ByteBuffer
+import java.text.SimpleDateFormat
+import java.util.Locale
 
-
-
-
+typealias LumaListener = (luma: Double) -> Unit
 
 private lateinit var binding: ActivityMainBinding
 
@@ -49,9 +72,29 @@ class MainActivity : AppCompatActivity() {
     private var HRplot: XYPlot? = null
     private var PVCplot: XYPlot? = null
 
+    private lateinit var viewBinding: ActivityMainBinding
+
+    private var imageCapture: ImageCapture? = null
+
+    private var videoCapture: VideoCapture<Recorder>? = null
+    private var recording: Recording? = null
+
+    private lateinit var cameraExecutor: ExecutorService
+
+
     companion object {
         private const val TAG = "PolarPVC2app_main"
         private const val PERMISSION_REQUEST_CODE = 1
+        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
+        private val REQUIRED_PERMISSIONS =
+            mutableListOf (
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO
+            ).apply {
+                if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+                    add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                }
+            }.toTypedArray()
     }
 
     private val api: PolarBleApi by lazy {
@@ -81,6 +124,17 @@ class MainActivity : AppCompatActivity() {
         val view = binding.root
 
         setContentView(view)
+
+        // Request camera permissions
+        if (allPermissionsGranted()) {
+            startCamera()
+        } else {
+            requestPermissions()
+        }
+
+        cameraExecutor = Executors.newSingleThreadExecutor()
+
+
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
@@ -231,6 +285,74 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.MANAGE_EXTERNAL_STORAGE), PERMISSION_REQUEST_CODE)
     }
 
+    private fun takePhoto() {}
+
+    private fun captureVideo() {}
+
+
+
+    private fun startCamera() {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+
+        cameraProviderFuture.addListener({
+            // Used to bind the lifecycle of cameras to the lifecycle owner
+            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+
+            // Preview
+            val preview = Preview.Builder()
+                .build()
+                .also {
+                    it.setSurfaceProvider(binding.viewFinder?.surfaceProvider)
+                }
+
+            // Select back camera as a default
+            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+            try {
+                // Unbind use cases before rebinding
+                cameraProvider.unbindAll()
+
+                // Bind use cases to camera
+                cameraProvider.bindToLifecycle(
+                    this, cameraSelector, preview)
+
+            } catch(exc: Exception) {
+                Log.e(TAG, "Use case binding failed", exc)
+            }
+
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+
+    private fun requestPermissions() {
+        activityResultLauncher.launch(REQUIRED_PERMISSIONS)
+    }
+
+    private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
+        ContextCompat.checkSelfPermission(
+            baseContext, it) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private val activityResultLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions())
+        { permissions ->
+            // Handle Permission granted/rejected
+            var permissionGranted = true
+            permissions.entries.forEach {
+                if (it.key in REQUIRED_PERMISSIONS && it.value == false)
+                    permissionGranted = false
+            }
+            if (!permissionGranted) {
+                Toast.makeText(baseContext,
+                    "Permission request denied",
+                    Toast.LENGTH_SHORT).show()
+            } else {
+                startCamera()
+            }
+        }
+
+
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
@@ -271,6 +393,8 @@ class MainActivity : AppCompatActivity() {
     public override fun onDestroy() {
         super.onDestroy()
         api.shutDown()
+        cameraExecutor.shutdown()
+
         wd.closeFile()
         binding.connectSwitch.isChecked = false
         binding.recordSwitch.isChecked = false
