@@ -22,7 +22,35 @@
     <FrameLayout android:id="@+id/microphone_preview"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="0.5" />
+        android:layout_weight="0.5">
+
+        <ProgressBar
+            android:id="@+id/progressBar"
+            style="@android:style/Widget.ProgressBar.Horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"/>
+
+        <TextView
+            android:id="@+id/decibelText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Decibel Level"
+            android:layout_marginTop="20dp"
+            android:textSize="18sp"
+            android:padding="5dp"/>
+
+        <TextView
+            android:id="@+id/breathingFrequencyText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="50dp"
+            android:text="Breathing Frequency"
+            android:textSize="18sp"
+            android:padding="5dp"/>
+
+
+    </FrameLayout>
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/main"

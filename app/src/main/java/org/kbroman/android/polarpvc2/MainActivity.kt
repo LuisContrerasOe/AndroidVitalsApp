@@ -3,15 +3,22 @@ package org.kbroman.android.polarpvc2
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioRecord
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.androidplot.xy.XYPlot
@@ -28,34 +35,18 @@ import java.util.Calendar
 import java.util.Date
 import java.util.TimeZone
 import java.util.UUID
-import kotlin.math.pow
-import kotlin.math.round
-
-import android.content.ContentValues
-import android.provider.MediaStore
-import androidx.camera.core.ImageCapture
-import androidx.camera.video.Recorder
-import androidx.camera.video.Recording
-import androidx.camera.video.VideoCapture
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.core.Preview
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.ImageProxy
-import androidx.camera.video.FallbackStrategy
-import androidx.camera.video.MediaStoreOutputOptions
-import androidx.camera.video.Quality
-import androidx.camera.video.QualitySelector
-import androidx.camera.video.VideoRecordEvent
-import androidx.core.content.PermissionChecker
-import java.nio.ByteBuffer
-import java.text.SimpleDateFormat
-import java.util.Locale
+import kotlin.math.pow
+import kotlin.math.round
+import android.media.AudioFormat
+import android.media.MediaRecorder
+import android.widget.ProgressBar
+import android.widget.TextView
+import android.annotation.SuppressLint
+import kotlin.math.log10
+import kotlin.math.sqrt
+import kotlinx.coroutines.*
 
 typealias LumaListener = (luma: Double) -> Unit
 
@@ -72,12 +63,20 @@ class MainActivity : AppCompatActivity() {
     private var HRplot: XYPlot? = null
     private var PVCplot: XYPlot? = null
 
-    private lateinit var viewBinding: ActivityMainBinding
+    private val SAMPLE_RATE = 44100
 
-    private var imageCapture: ImageCapture? = null
 
-    private var videoCapture: VideoCapture<Recorder>? = null
-    private var recording: Recording? = null
+    private var audioRecord: AudioRecord? = null
+    private var isRecordingMic = false
+
+    private var audioRecordBreath: AudioRecord? = null
+    private var isRecordingMicBreath = false
+
+
+    private lateinit var progressBar: ProgressBar
+    private lateinit var decibelText: TextView
+    private lateinit var breathingFrequencyText: TextView
+
 
     private lateinit var cameraExecutor: ExecutorService
 
@@ -87,7 +86,7 @@ class MainActivity : AppCompatActivity() {
         private const val PERMISSION_REQUEST_CODE = 1
         private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
         private val REQUIRED_PERMISSIONS =
-            mutableListOf (
+            mutableListOf(
                 Manifest.permission.CAMERA,
                 Manifest.permission.RECORD_AUDIO
             ).apply {
@@ -106,7 +105,8 @@ class MainActivity : AppCompatActivity() {
                 PolarBleApi.PolarBleSdkFeature.FEATURE_POLAR_ONLINE_STREAMING,
                 PolarBleApi.PolarBleSdkFeature.FEATURE_BATTERY_INFO,
                 PolarBleApi.PolarBleSdkFeature.FEATURE_POLAR_DEVICE_TIME_SETUP,
-                PolarBleApi.PolarBleSdkFeature.FEATURE_DEVICE_INFO)
+                PolarBleApi.PolarBleSdkFeature.FEATURE_DEVICE_INFO
+            )
         )
     }
 
@@ -122,6 +122,7 @@ class MainActivity : AppCompatActivity() {
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         val view = binding.root
+
 
         setContentView(view)
 
@@ -145,6 +146,17 @@ class MainActivity : AppCompatActivity() {
         ECGplot = findViewById(R.id.ecgplot)
         HRplot = findViewById(R.id.hrplot)
         PVCplot = findViewById(R.id.pvcplot)
+
+        progressBar = findViewById(R.id.progressBar)
+        decibelText = findViewById(R.id.decibelText)
+        breathingFrequencyText = findViewById(R.id.breathingFrequencyText)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            requestMicrophonePermission()
+        } else {
+            startRecordingMic()
+        }
+
 
         api.setPolarFilter(false)
         api.setApiCallback(object : PolarBleApiCallback() {
@@ -203,7 +215,10 @@ class MainActivity : AppCompatActivity() {
                     )
             }
 
-            override fun bleSdkFeatureReady(identifier: String, feature: PolarBleApi.PolarBleSdkFeature) {
+            override fun bleSdkFeatureReady(
+                identifier: String,
+                feature: PolarBleApi.PolarBleSdkFeature
+            ) {
                 Log.d(TAG, "feature ready $feature")
 
                 when (feature) {
@@ -230,13 +245,13 @@ class MainActivity : AppCompatActivity() {
             } else { // close connection
                 Log.d(TAG, "Closing connection")
 
-                if(binding.recordSwitch.isChecked) {
+                if (binding.recordSwitch.isChecked) {
                     Log.d(TAG, "currently recording")
 
                     // FIX_ME: should open a dialog box to verify you want to stop recording
                     // (maybe always verify stopping recording)
 
-                    binding.recordSwitch.isChecked=false  // this will call stop_recording()
+                    binding.recordSwitch.isChecked = false  // this will call stop_recording()
                 }
 
                 ecgDisposable?.dispose()
@@ -252,7 +267,7 @@ class MainActivity : AppCompatActivity() {
             if (isChecked) { // start recording
                 Log.d(TAG, "Starting recording")
 
-                if(!binding.connectSwitch.isChecked) {
+                if (!binding.connectSwitch.isChecked) {
                     Log.d(TAG, "not yet connected")
                     binding.connectSwitch.isChecked = true   // this will call open_connection()
                 }
@@ -260,7 +275,7 @@ class MainActivity : AppCompatActivity() {
 
                 val prefs = getPreferences(MODE_PRIVATE)
                 filePath = prefs.getString("PREF_FILE_PATH", "")
-                if(filePath == "") chooseDataDirectory()
+                if (filePath == "") chooseDataDirectory()
             } else { // stop recording
                 Log.d(TAG, "Stopping recording")
                 isRecording = false
@@ -271,25 +286,34 @@ class MainActivity : AppCompatActivity() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), PERMISSION_REQUEST_CODE)
+                requestPermissions(
+                    arrayOf(
+                        Manifest.permission.BLUETOOTH_SCAN,
+                        Manifest.permission.BLUETOOTH_CONNECT
+                    ), PERMISSION_REQUEST_CODE
+                )
             } else {
-                requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), PERMISSION_REQUEST_CODE)
+                requestPermissions(
+                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                    PERMISSION_REQUEST_CODE
+                )
             }
         } else {
-            requestPermissions(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION), PERMISSION_REQUEST_CODE)
+            requestPermissions(
+                arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION),
+                PERMISSION_REQUEST_CODE
+            )
         }
 
         // request permissions to write files to SD card
-        requestPermissions(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-            Manifest.permission.MANAGE_EXTERNAL_STORAGE), PERMISSION_REQUEST_CODE)
+        requestPermissions(
+            arrayOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                Manifest.permission.MANAGE_EXTERNAL_STORAGE
+            ), PERMISSION_REQUEST_CODE
+        )
     }
-
-    private fun takePhoto() {}
-
-    private fun captureVideo() {}
-
-
 
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
@@ -314,9 +338,10 @@ class MainActivity : AppCompatActivity() {
 
                 // Bind use cases to camera
                 cameraProvider.bindToLifecycle(
-                    this, cameraSelector, preview)
+                    this, cameraSelector, preview
+                )
 
-            } catch(exc: Exception) {
+            } catch (exc: Exception) {
                 Log.e(TAG, "Use case binding failed", exc)
             }
 
@@ -330,12 +355,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
         ContextCompat.checkSelfPermission(
-            baseContext, it) == PackageManager.PERMISSION_GRANTED
+            baseContext, it
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     private val activityResultLauncher =
         registerForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions())
+            ActivityResultContracts.RequestMultiplePermissions()
+        )
         { permissions ->
             // Handle Permission granted/rejected
             var permissionGranted = true
@@ -344,17 +371,175 @@ class MainActivity : AppCompatActivity() {
                     permissionGranted = false
             }
             if (!permissionGranted) {
-                Toast.makeText(baseContext,
+                Toast.makeText(
+                    baseContext,
                     "Permission request denied",
-                    Toast.LENGTH_SHORT).show()
+                    Toast.LENGTH_SHORT
+                ).show()
             } else {
                 startCamera()
             }
         }
 
+    private fun requestMicrophonePermission() {
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 1)
+        } else {
+            startRecordingMic()
+        }
+    }
+
+    class CircularBuffer(private val size: Int) {
+        private val buffer = ShortArray(size)
+        private var writeIndex = 0
+
+        fun write(data: ShortArray) {
+            for (sample in data) {
+                buffer[writeIndex] = sample
+                writeIndex = (writeIndex + 1) % size
+            }
+        }
+
+        fun read(): ShortArray {
+            val result = ShortArray(size)
+            for (i in buffer.indices) {
+                result[i] = buffer[(writeIndex + i) % size]
+            }
+            return result
+        }
+    }
+
+    private val BUFFER_SIZE_BREATH = 2048 // Larger buffer size for smoother processing
+    private val circularBuffer = CircularBuffer(BUFFER_SIZE_BREATH * 2)
 
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+    @SuppressLint("MissingPermission")
+    private fun startRecordingMic() {
+        audioRecord = AudioRecord(
+            MediaRecorder.AudioSource.MIC,
+            SAMPLE_RATE,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            BUFFER_SIZE_BREATH
+        )
+
+
+        audioRecord?.startRecording()
+
+        isRecording = true
+
+        CoroutineScope(Dispatchers.IO).launch {
+            val buffer = ShortArray(BUFFER_SIZE_BREATH)
+            while (isRecording) {
+                val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
+                var sum = 0.0
+                for (i in 0 until read) {
+                    sum += buffer[i] * buffer[i]
+                }
+                if (read > 0) {
+                    val amplitude = sum / read
+                    val decibel = 20 * log10(sqrt(amplitude))
+
+                    withContext(Dispatchers.Main) {
+                        progressBar.progress = decibel.toInt()
+                        decibelText.text = String.format("Decibel Level: %.2f dB", decibel)
+                    }
+
+                    circularBuffer.write(buffer.copyOfRange(0, read))
+                    val data = circularBuffer.read()
+                    val breathingFrequency = calculateBreathingFrequency(data)
+                    withContext(Dispatchers.Main) {
+                        breathingFrequencyText.text = String.format(
+                            "Breathing Frequency: %.2f breaths per minute",
+                            breathingFrequency
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+
+    private fun nextPowerOf2(n: Int): Int {
+        var v = n
+        v--
+        v = v or (v shr 1)
+        v = v or (v shr 2)
+        v = v or (v shr 4)
+        v = v or (v shr 8)
+        v = v or (v shr 16)
+        v++
+        return v
+    }
+
+    private fun calculateBreathingFrequency(buffer: ShortArray): Double {
+        val n = nextPowerOf2(buffer.size)
+        val real = DoubleArray(n)
+        val imag = DoubleArray(n)
+
+        // Convert buffer to double array and initialize real part for FFT
+        System.arraycopy(buffer.map { it.toDouble() / 32768.0 }.toDoubleArray(), 0, real, 0, buffer.size)
+
+        // Perform FFT
+        val fft = FFT(n)
+        fft.fft(real, imag)
+
+        // Compute magnitudes from FFT results
+        val magnitudes = DoubleArray(n / 2)
+        for (i in 0 until n / 2) {
+            magnitudes[i] = sqrt(real[i] * real[i] + imag[i] * imag[i])
+        }
+
+        // Define low and high frequencies for the band-pass filter
+        val lowFrequency = 0.1 // in Hz
+        val highFrequency = 2.0 // in Hz
+
+        // Calculate frequency resolution
+        val frequencyResolution = SAMPLE_RATE / n.toDouble()
+
+        // Calculate index range for filtering
+        val lowBin = (0.1 * n / SAMPLE_RATE).toInt().coerceAtLeast(0)
+        val highBin = (2.0 * n / SAMPLE_RATE).toInt().coerceAtMost(n / 2 - 1)
+
+        val filteredMagnitudes = mutableListOf<Double>()
+        for (i in lowBin..highBin) {
+            filteredMagnitudes.add(magnitudes[i])
+        }
+
+
+        // Count peaks in the filtered magnitude array
+        var breathPeaks = 0
+        for (i in 1 until filteredMagnitudes.size - 1) {
+            if (filteredMagnitudes[i] > filteredMagnitudes[i - 1] &&
+                filteredMagnitudes[i] > filteredMagnitudes[i + 1]) {
+                breathPeaks++
+            }
+        }
+
+        // Calculate duration in seconds
+        val durationInSeconds = buffer.size.toDouble() / SAMPLE_RATE
+        return breathPeaks / durationInSeconds * 60
+    }
+
+    private fun stopRecording() {
+        audioRecord?.let {
+            isRecordingMic = false
+            it.stop()
+            it.release()
+            audioRecord = null
+        }
+    }
+
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERMISSION_REQUEST_CODE) {
             for (index in 0..grantResults.lastIndex) {
@@ -374,24 +559,28 @@ class MainActivity : AppCompatActivity() {
 
     public override fun onResume() {
         super.onResume()
-        if(api != null) api.foregroundEntered()
+        if (api != null) api.foregroundEntered()
 
         if (ecgPlotter == null) {
             ECGplot!!.post({
-                ecgPlotter = ECGplotter(this, ECGplot) })
+                ecgPlotter = ECGplotter(this, ECGplot)
+            })
         }
         if (hrPlotter == null) {
             HRplot!!.post({
-                hrPlotter = HRplotter(this, HRplot) })
+                hrPlotter = HRplotter(this, HRplot)
+            })
         }
         if (pvcPlotter == null) {
             PVCplot!!.post({
-                pvcPlotter = PVCplotter(this, PVCplot) })
+                pvcPlotter = PVCplotter(this, PVCplot)
+            })
         }
     }
 
     public override fun onDestroy() {
         super.onDestroy()
+        stopRecording()
         api.shutDown()
         cameraExecutor.shutdown()
 
@@ -411,7 +600,7 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result: ActivityResult ->
 
-         try {
+        try {
             if (result.resultCode == RESULT_OK) {
                 // Get Uri from Storage Access Framework.
                 var uri = result.data!!.data
@@ -427,11 +616,12 @@ class MainActivity : AppCompatActivity() {
                     this.getContentResolver().takePersistableUriPermission(
                         uri!!,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION +
-                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    )
                     editor.putString("PREF_FILE_PATH", uri.toString())
                     editor.apply()
                 } catch (ex: Exception) {
-                    Log.d(TAG,"Failed to save persistent uri permission")
+                    Log.d(TAG, "Failed to save persistent uri permission")
                 }
             }
         } catch (ex: Exception) {
@@ -453,19 +643,24 @@ class MainActivity : AppCompatActivity() {
         if (isDisposed) {
             ecgDisposable = api.requestStreamSettings(deviceId, PolarBleApi.PolarDeviceDataType.ECG)
                 .toFlowable()
-                .flatMap { sensorSetting: PolarSensorSetting -> api.startEcgStreaming(deviceId, sensorSetting.maxSettings()) }
+                .flatMap { sensorSetting: PolarSensorSetting ->
+                    api.startEcgStreaming(
+                        deviceId,
+                        sensorSetting.maxSettings()
+                    )
+                }
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(
                     { polarEcgData: PolarEcgData ->
                         Log.d(TAG, "ecg update")
 
                         pd.processData(polarEcgData)  // PeakDetection -> find_peaks
-                        if(isRecording && filePath != "") {
+                        if (isRecording && filePath != "") {
                             Log.d(TAG, "writing data")
                             wd.writeData(filePath!!, polarEcgData)
                         }
 
-                        if(pd.rrData.size() > 1) {
+                        if (pd.rrData.size() > 1) {
                             val hr_bpm: Double = 60.0 / pd.rrData.average()
                             val pvc_ave: Double = pd.pvcData.average() * 100.0
                             Log.d(TAG, "pvc = ${myround(pvc_ave, 0)}   hr=${myround(hr_bpm, 1)}")
@@ -501,13 +696,13 @@ class MainActivity : AppCompatActivity() {
 }
 
 fun myround(value: Double, digits: Int): String {
-    val tens: Double = if(digits < 0) 10.0.pow(-digits) else 10.0.pow(digits)
+    val tens: Double = if (digits < 0) 10.0.pow(-digits) else 10.0.pow(digits)
 
-    if(digits == 0) {
+    if (digits == 0) {
         return round(value).toInt().toString()
-    } else if(digits < 0) {
-        return (round(value/tens) *tens).toInt().toString()
+    } else if (digits < 0) {
+        return (round(value / tens) * tens).toInt().toString()
     } else {
-        return (round(value*tens) /tens).toString()
+        return (round(value * tens) / tens).toString()
     }
 }
