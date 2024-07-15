@@ -1,14 +1,18 @@
 package org.kbroman.android.polarpvc2
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioFormat
 import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.View
 import android.view.WindowManager
+import android.widget.ProgressBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResult
@@ -22,6 +26,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.androidplot.xy.XYPlot
+import android.graphics.Color
+import com.androidplot.xy.SimpleXYSeries
+import com.androidplot.xy.LineAndPointFormatter
 import com.polar.sdk.api.PolarBleApi
 import com.polar.sdk.api.PolarBleApiCallback
 import com.polar.sdk.api.PolarBleApiDefaultImpl
@@ -30,6 +37,10 @@ import com.polar.sdk.api.model.PolarEcgData
 import com.polar.sdk.api.model.PolarSensorSetting
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
 import io.reactivex.rxjava3.disposables.Disposable
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.kbroman.android.polarpvc2.databinding.ActivityMainBinding
 import java.util.Calendar
 import java.util.Date
@@ -37,16 +48,11 @@ import java.util.TimeZone
 import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.math.abs
+import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.round
-import android.media.AudioFormat
-import android.media.MediaRecorder
-import android.widget.ProgressBar
-import android.widget.TextView
-import android.annotation.SuppressLint
-import kotlin.math.log10
 import kotlin.math.sqrt
-import kotlinx.coroutines.*
 
 typealias LumaListener = (luma: Double) -> Unit
 
@@ -62,12 +68,7 @@ class MainActivity : AppCompatActivity() {
     private var ECGplot: XYPlot? = null
     private var HRplot: XYPlot? = null
     private var PVCplot: XYPlot? = null
-
-    private val SAMPLE_RATE = 44100
-
-
-    private var audioRecord: AudioRecord? = null
-    private var isRecordingMic = false
+    private var AudioPlot: XYPlot? = null
 
     private var audioRecordBreath: AudioRecord? = null
     private var isRecordingMicBreath = false
@@ -115,6 +116,7 @@ class MainActivity : AppCompatActivity() {
     var ecgPlotter: ECGplotter? = null
     var hrPlotter: HRplotter? = null
     var pvcPlotter: PVCplotter? = null
+    var audioPlotter: AudioPlotter? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -150,6 +152,7 @@ class MainActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progressBar)
         decibelText = findViewById(R.id.decibelText)
         breathingFrequencyText = findViewById(R.id.breathingFrequencyText)
+        AudioPlot = findViewById(R.id.grafico);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             requestMicrophonePermission()
@@ -393,40 +396,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    class CircularBuffer(private val size: Int) {
-        private val buffer = ShortArray(size)
-        private var writeIndex = 0
 
-        fun write(data: ShortArray) {
-            for (sample in data) {
-                buffer[writeIndex] = sample
-                writeIndex = (writeIndex + 1) % size
-            }
-        }
+    private val SAMPLE_RATE = 44100
 
-        fun read(): ShortArray {
-            val result = ShortArray(size)
-            for (i in buffer.indices) {
-                result[i] = buffer[(writeIndex + i) % size]
-            }
-            return result
-        }
-    }
-
-    private val BUFFER_SIZE_BREATH = 2048 // Larger buffer size for smoother processing
-    private val circularBuffer = CircularBuffer(BUFFER_SIZE_BREATH * 2)
-
+    private var audioRecord: AudioRecord? = null
+    private var isRecordingMic = false
+    private val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
+    private val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+    private val BUFFER_SIZE_BREATH = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+    private val INTERVAL_BUFFER_SIZE = SAMPLE_RATE * 2 * 3 // 3 seconds of audio data
+    private val MAXIMUM_BUFFER_SIZE = SAMPLE_RATE * 2 * 9 // 3 seconds of audio data
 
     @SuppressLint("MissingPermission")
     private fun startRecordingMic() {
         audioRecord = AudioRecord(
             MediaRecorder.AudioSource.MIC,
             SAMPLE_RATE,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
+            CHANNEL_CONFIG,
+            AUDIO_FORMAT,
             BUFFER_SIZE_BREATH
         )
-
 
         audioRecord?.startRecording()
 
@@ -434,96 +423,139 @@ class MainActivity : AppCompatActivity() {
 
         CoroutineScope(Dispatchers.IO).launch {
             val buffer = ShortArray(BUFFER_SIZE_BREATH)
+            val intervalBuffer = ShortArray(INTERVAL_BUFFER_SIZE)
+            var intervalBufferOffset = 0
+            val maximumBuffer = ShortArray(MAXIMUM_BUFFER_SIZE)
+            var maximumBufferOffset = 0
+
             while (isRecording) {
                 val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
                 var sum = 0.0
                 for (i in 0 until read) {
                     sum += buffer[i] * buffer[i]
                 }
+
                 if (read > 0) {
                     val amplitude = sum / read
                     val decibel = 20 * log10(sqrt(amplitude))
+                    val timestamp = System.currentTimeMillis().toDouble()
+
 
                     withContext(Dispatchers.Main) {
                         progressBar.progress = decibel.toInt()
                         decibelText.text = String.format("Decibel Level: %.2f dB", decibel)
+
+                        audioPlotter!!.addValues(timestamp, decibel)
                     }
 
-                    circularBuffer.write(buffer.copyOfRange(0, read))
-                    val data = circularBuffer.read()
-                    val breathingFrequency = calculateBreathingFrequency(data)
-                    withContext(Dispatchers.Main) {
-                        breathingFrequencyText.text = String.format(
-                            "Breathing Frequency: %.2f breaths per minute",
-                            breathingFrequency
-                        )
+                    /*if (intervalBufferOffset + read < intervalBuffer.size) {
+                        // Adjust the amount to copy to prevent overflow
+                        System.arraycopy(buffer, 0, intervalBuffer, intervalBufferOffset, read)
+
                     }
+
+                    intervalBufferOffset += read
+
+
+                    // Check if the interval-second buffer is full
+                    if (intervalBufferOffset >= intervalBuffer.size) {
+
+                        // Copy the 3-second buffer to a new ByteArray
+                        System.arraycopy(intervalBuffer, 0, maximumBuffer, maximumBufferOffset, intervalBuffer.size)
+                        maximumBufferOffset += intervalBuffer.size
+                        // Reset the 3-second buffer and offset
+                        intervalBufferOffset = 0
+
+                        // Process the audioData (e.g., save to file, analyze, etc.)
+                        graphAudio(maximumBuffer)
+
+                        if (maximumBufferOffset + intervalBuffer.size > maximumBuffer.size) {
+                            System.arraycopy(maximumBuffer, INTERVAL_BUFFER_SIZE, maximumBuffer, 0, INTERVAL_BUFFER_SIZE*2)
+                            maximumBufferOffset = INTERVAL_BUFFER_SIZE*2
+                        }
+                    }*/
                 }
             }
         }
     }
 
 
-    private fun nextPowerOf2(n: Int): Int {
-        var v = n
-        v--
-        v = v or (v shr 1)
-        v = v or (v shr 2)
-        v = v or (v shr 4)
-        v = v or (v shr 8)
-        v = v or (v shr 16)
-        v++
-        return v
+    private fun graphAudio(audioData: ShortArray) {
+        // Reset all data from the plot
+
+        AudioPlot?.clear()
+
+        // Process the data
+        val numDataPoints = audioData.size
+        val absshorts = DoubleArray(numDataPoints)
+        for (i in audioData.indices) {
+            absshorts[i] = abs(audioData[i].toDouble())
+        }
+
+        // Apply moving average filter
+        val filtrada = movingAverage(absshorts, 8000)
+        val max = getMaxValue(filtrada)
+
+        // Create data points for the series
+        val xValues = DoubleArray(filtrada.size)
+        val yValues = DoubleArray(filtrada.size)
+
+        for (i in filtrada.indices) {
+            xValues[i] = i.toDouble()
+            yValues[i] = filtrada[i] / max
+        }
+
+        // Create and add series to the plot
+        val xySeries = SimpleXYSeries(
+            xValues.asList(),
+            yValues.asList(),
+            "Audio Data"
+        )
+
+        val seriesFormatter = LineAndPointFormatter()
+        seriesFormatter.linePaint.color = Color.RED
+        seriesFormatter.pointLabelFormatter.textPaint.color = Color.BLUE
+        AudioPlot?.addSeries(xySeries, seriesFormatter)
+
+        // Refresh the plot
+        AudioPlot?.redraw()
     }
 
-    private fun calculateBreathingFrequency(buffer: ShortArray): Double {
-        val n = nextPowerOf2(buffer.size)
-        val real = DoubleArray(n)
-        val imag = DoubleArray(n)
-
-        // Convert buffer to double array and initialize real part for FFT
-        System.arraycopy(buffer.map { it.toDouble() / 32768.0 }.toDoubleArray(), 0, real, 0, buffer.size)
-
-        // Perform FFT
-        val fft = FFT(n)
-        fft.fft(real, imag)
-
-        // Compute magnitudes from FFT results
-        val magnitudes = DoubleArray(n / 2)
-        for (i in 0 until n / 2) {
-            magnitudes[i] = sqrt(real[i] * real[i] + imag[i] * imag[i])
-        }
-
-        // Define low and high frequencies for the band-pass filter
-        val lowFrequency = 0.1 // in Hz
-        val highFrequency = 2.0 // in Hz
-
-        // Calculate frequency resolution
-        val frequencyResolution = SAMPLE_RATE / n.toDouble()
-
-        // Calculate index range for filtering
-        val lowBin = (0.1 * n / SAMPLE_RATE).toInt().coerceAtLeast(0)
-        val highBin = (2.0 * n / SAMPLE_RATE).toInt().coerceAtMost(n / 2 - 1)
-
-        val filteredMagnitudes = mutableListOf<Double>()
-        for (i in lowBin..highBin) {
-            filteredMagnitudes.add(magnitudes[i])
-        }
-
-
-        // Count peaks in the filtered magnitude array
-        var breathPeaks = 0
-        for (i in 1 until filteredMagnitudes.size - 1) {
-            if (filteredMagnitudes[i] > filteredMagnitudes[i - 1] &&
-                filteredMagnitudes[i] > filteredMagnitudes[i + 1]) {
-                breathPeaks++
+    fun getMaxValue(numbers: DoubleArray): Double {
+        var maxValue = numbers[0]
+        for (i in 1 until numbers.size) {
+            if (numbers[i] > maxValue) {
+                maxValue = numbers[i]
             }
         }
-
-        // Calculate duration in seconds
-        val durationInSeconds = buffer.size.toDouble() / SAMPLE_RATE
-        return breathPeaks / durationInSeconds * 60
+        return maxValue
     }
+
+
+    private fun movingAverage(signal: DoubleArray, order: Int): DoubleArray {
+        val b = IntArray(order + 1)
+        b[0] = 1
+        val a = IntArray(2)
+        a[0] = order
+        a[1] = -order
+
+        for (i in 1 until (order - 1)) {
+            b[i] = 0
+        }
+        b[order] = -1
+
+        val filtrada = DoubleArray(signal.size)
+        for (j in filtrada.indices) {
+            filtrada[0] = 0.0
+        }
+        for (n in order until signal.size) {
+            filtrada[n] = b[0] * signal[n] + b[order] * signal[n - order] - a[1] * filtrada[n - 1]
+            filtrada[n] = filtrada[n] / order
+        }
+
+        return filtrada
+    }
+
 
     private fun stopRecording() {
         audioRecord?.let {
@@ -574,6 +606,12 @@ class MainActivity : AppCompatActivity() {
         if (pvcPlotter == null) {
             PVCplot!!.post({
                 pvcPlotter = PVCplotter(this, PVCplot)
+            })
+        }
+
+        if (audioPlotter == null) {
+            AudioPlot!!.post({
+                audioPlotter = AudioPlotter(this, AudioPlot)
             })
         }
     }

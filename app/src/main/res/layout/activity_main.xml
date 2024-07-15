@@ -22,7 +22,7 @@
     <FrameLayout android:id="@+id/microphone_preview"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="0.5">
+        android:layout_weight="0.6">
 
         <ProgressBar
             android:id="@+id/progressBar"
@@ -33,21 +33,30 @@
 
         <TextView
             android:id="@+id/decibelText"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Decibel Level"
             android:layout_marginTop="20dp"
-            android:textSize="18sp"
-            android:padding="5dp"/>
+            android:textSize="12sp"
+            android:padding="1dp"/>
 
         <TextView
             android:id="@+id/breathingFrequencyText"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="50dp"
+            android:layout_marginTop="35dp"
             android:text="Breathing Frequency"
-            android:textSize="18sp"
-            android:padding="5dp"/>
+            android:textSize="12sp"
+            android:padding="1dp"/>
+
+
+        <com.androidplot.xy.XYPlot
+            android:id="@+id/grafico"
+            android:layout_width="match_parent"
+            android:layout_height="100dp"
+            android:layout_marginTop="60dp"
+ />
+
 
 
     </FrameLayout>

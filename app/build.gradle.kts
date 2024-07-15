@@ -13,9 +13,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
     }
 
     buildFeatures {
@@ -46,6 +44,7 @@ val cameraxversion = "1.3.4"
 dependencies {
     implementation("com.androidplot:androidplot-core:1.5.10")
     implementation("com.github.polarofficial:polar-ble-sdk:5.5.0")
+    implementation("com.github.wendykierp:JTransforms:3.1")
     implementation("io.reactivex.rxjava3:rxjava:3.1.6")
     implementation("io.reactivex.rxjava3:rxandroid:3.0.2")
     implementation(libs.androidx.core.ktx)
@@ -62,5 +61,6 @@ dependencies {
     implementation("androidx.camera:camera-video:$cameraxversion")
     implementation("androidx.camera:camera-view:$cameraxversion")
     implementation("androidx.camera:camera-extensions:$cameraxversion")
+
 
 }
