@@ -31,6 +31,16 @@
             android:layout_height="wrap_content"
             android:max="100"/>
 
+        <Button
+            android:id="@+id/switchMicButton"
+            android:layout_width="100dp"
+            android:layout_height="45dp"
+
+            android:layout_marginTop="20dp"
+            android:layout_marginLeft="300dp"
+            android:textSize="10sp"
+            android:text="Switch Microphone"/>
+
         <TextView
             android:id="@+id/decibelText"
             android:layout_width="match_parent"

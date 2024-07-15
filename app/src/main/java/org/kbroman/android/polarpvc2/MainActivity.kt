@@ -2,10 +2,13 @@ package org.kbroman.android.polarpvc2
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
+import android.media.AudioManager
+import android.media.AudioDeviceInfo
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
@@ -27,6 +30,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.androidplot.xy.XYPlot
 import android.graphics.Color
+import android.widget.Button
 import com.androidplot.xy.SimpleXYSeries
 import com.androidplot.xy.LineAndPointFormatter
 import com.polar.sdk.api.PolarBleApi
@@ -83,6 +87,12 @@ class MainActivity : AppCompatActivity() {
 
 
     companion object {
+
+        lateinit var mInstance: MainActivity
+        fun getContext(): Context? {
+            return mInstance.applicationContext
+        }
+
         private const val TAG = "PolarPVC2app_main"
         private const val PERMISSION_REQUEST_CODE = 1
         private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
@@ -124,6 +134,7 @@ class MainActivity : AppCompatActivity() {
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         val view = binding.root
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
 
         setContentView(view)
@@ -153,11 +164,22 @@ class MainActivity : AppCompatActivity() {
         decibelText = findViewById(R.id.decibelText)
         breathingFrequencyText = findViewById(R.id.breathingFrequencyText)
         AudioPlot = findViewById(R.id.grafico);
+        switchMicButton = findViewById(R.id.switchMicButton)
+
+        switchMicButton.setText("Start Recording");
+
+        switchMicButton.setOnClickListener {
+            switchMicrophone()
+        }
+
+
+        audioManager.setBluetoothScoOn(true)
+        audioManager.startBluetoothSco()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             requestMicrophonePermission()
         } else {
-            startRecordingMic()
+            //startRecordingMic()
         }
 
 
@@ -362,6 +384,8 @@ class MainActivity : AppCompatActivity() {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+
+
     private val activityResultLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()
@@ -392,7 +416,7 @@ class MainActivity : AppCompatActivity() {
         ) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 1)
         } else {
-            startRecordingMic()
+            //StartRecordingMic()
         }
     }
 
@@ -406,21 +430,45 @@ class MainActivity : AppCompatActivity() {
     private val BUFFER_SIZE_BREATH = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
     private val INTERVAL_BUFFER_SIZE = SAMPLE_RATE * 2 * 3 // 3 seconds of audio data
     private val MAXIMUM_BUFFER_SIZE = SAMPLE_RATE * 2 * 9 // 3 seconds of audio data
+    private var isUsingBluetoothMic = false
+    private lateinit var switchMicButton: Button
 
     @SuppressLint("MissingPermission")
     private fun startRecordingMic() {
-        audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            SAMPLE_RATE,
-            CHANNEL_CONFIG,
-            AUDIO_FORMAT,
-            BUFFER_SIZE_BREATH
-        )
+
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioPlotter?.clear()
+
+        audioRecord = AudioRecord.Builder()
+            .setAudioSource(MediaRecorder.AudioSource.MIC)
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AUDIO_FORMAT)
+                    .setSampleRate(SAMPLE_RATE)
+                    .setChannelMask(CHANNEL_CONFIG)
+                    .build()
+            )
+            .setBufferSizeInBytes(BUFFER_SIZE_BREATH)
+            .build()
+
+        /*
+        var bluetoothMicSource = null as AudioDeviceInfo?
+        if(isUsingBluetoothMic){
+            bluetoothMicSource = getBluetoothMicSource()
+        } else {
+           // audioManager.stopBluetoothSco()
+           // audioManager.setBluetoothScoOn(false)
+        }
+
+        if(bluetoothMicSource != null){
+            Log.d("Bluetooth Handling", "Trying to connect to " + bluetoothMicSource.productName)
+            audioRecord?.setPreferredDevice(bluetoothMicSource)
+        } else {
+            Log.d("Bluetooth Handling", "Trying to connect to " + audioRecord?.audioSource)
+        }*/
 
         audioRecord?.startRecording()
-
-        isRecording = true
-
+        isRecordingMic = true
         CoroutineScope(Dispatchers.IO).launch {
             val buffer = ShortArray(BUFFER_SIZE_BREATH)
             val intervalBuffer = ShortArray(INTERVAL_BUFFER_SIZE)
@@ -428,7 +476,7 @@ class MainActivity : AppCompatActivity() {
             val maximumBuffer = ShortArray(MAXIMUM_BUFFER_SIZE)
             var maximumBufferOffset = 0
 
-            while (isRecording) {
+            while (isRecordingMic) {
                 val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
                 var sum = 0.0
                 for (i in 0 until read) {
@@ -477,6 +525,59 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+    }
+
+    private fun switchMicrophone() {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+        if(isRecordingMic){
+            stopRecording()
+            switchMicButton.setText("Start Recording");
+
+            /*if(isUsingBluetoothMic){
+                switchMicButton.setText("R  Normal");
+                audioManager.stopBluetoothSco()
+                audioManager.isBluetoothScoOn = false
+                audioManager.setBluetoothScoOn(false)
+            } else {
+                switchMicButton.setText("R Bluetooth");
+                audioManager.isBluetoothScoOn = true
+                audioManager.setBluetoothScoOn(true)
+                audioManager.startBluetoothSco()
+            }*/
+        } else {
+            //isUsingBluetoothMic = !isUsingBluetoothMic
+            switchMicButton.setText("Stop Recording");
+            startRecordingMic()
+        }
+
+    }
+
+    private fun getBluetoothMicSource(): AudioDeviceInfo? {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val devices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+        Log.d("Microphone", "Mic List " + devices)
+        Log.d("Microphone", "Mic Number " + devices.size)
+        for (device in devices) {
+            var isBluetooth = false
+            if (device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                device.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+            ) {
+                isBluetooth = true
+
+            }
+
+            Log.d("Microphone", "Device Type " + device.type + " device name " + device.productName + " device data " + device.id + " is bluetooth " + isBluetooth)
+
+            if(isBluetooth){
+                Log.d("Bluetooth Device Found", "Connecting to " + device.id)
+               // audioManager.setBluetoothScoOn(true)
+               // audioManager.startBluetoothSco()
+                return device
+            }
+        }
+        return null
     }
 
 
