@@ -26,7 +26,7 @@ class AudioPlotter (private var mActivity: MainActivity?, private var Plot: XYPl
 
     companion object {
         private const val TAG = "PolarPVC2app_plothr"
-        private const val N_TOTAL_POINTS: Int = 150*60*25   // maximum number of data points
+        private const val N_TOTAL_POINTS: Int = 100   // maximum number of data points
     }
 
     private var formatterHR: XYSeriesFormatter<XYRegionFormatter>? = null
@@ -117,8 +117,9 @@ class AudioPlotter (private var mActivity: MainActivity?, private var Plot: XYPl
     }
 
     fun updateBoundaries() {
-        Plot!!.setDomainBoundaries(xMin, xMax, BoundaryMode.FIXED)
-        Plot!!.setDomainStep(StepMode.INCREMENT_BY_VAL, domainLines())
+        Plot!!.setDomainBoundaries(10.0, BoundaryMode.AUTO, 10.0, BoundaryMode.AUTO)
+
+        Plot!!.setDomainStep(StepMode.INCREMENT_BY_VAL, 3000.0)
 
         Plot!!.setRangeBoundaries(yMin, yMax, BoundaryMode.FIXED)
     }
