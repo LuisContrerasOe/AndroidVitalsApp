@@ -15,38 +15,37 @@ import java.text.FieldPosition
 import java.text.Format
 import java.text.ParsePosition
 import java.text.SimpleDateFormat
-import java.time.Instant
 import java.util.Date
 
 class AudioPlotter (private var mActivity: MainActivity?, private var Plot: XYPlot?) {
-    private var yMin: Double = 40.0
+    private var yMin: Double = -10.0
     private var yMax: Double = 80.0
     private var xMin: Double = Double.MAX_VALUE
     private var xMax: Double = -Double.MAX_VALUE
 
     companion object {
-        private const val TAG = "PolarPVC2app_plothr"
-        private const val N_TOTAL_POINTS: Int = 100   // maximum number of data points
+        private const val TAG = "PolarPVC2app_plotaudio"
+        private const val N_TOTAL_POINTS: Int = 80   // maximum number of data points
     }
 
-    private var formatterHR: XYSeriesFormatter<XYRegionFormatter>? = null
-    var seriesHR: SimpleXYSeries? = null
+    private var formatterAudio: XYSeriesFormatter<XYRegionFormatter>? = null
+    var seriesAudio: SimpleXYSeries? = null
 
     init {
-        formatterHR = LineAndPointFormatter(Color.rgb(0xFF , 0x41, 0x36), // red lines
+        formatterAudio = LineAndPointFormatter(Color.rgb(0xFF , 0x41, 0x36), // red lines
             null, null, null)
-        formatterHR!!.setLegendIconEnabled(false)
-        seriesHR = SimpleXYSeries("HR")
+        formatterAudio!!.setLegendIconEnabled(false)
+        seriesAudio = SimpleXYSeries("AUDIO")
 
-        Plot!!.addSeries(seriesHR, formatterHR)
+        Plot!!.addSeries(seriesAudio, formatterAudio)
         setupPlot()
     }
 
     fun setupPlot() {
         try {
             // frequency of x- and y-axis lines
-            Plot!!.setRangeStep(StepMode.INCREMENT_BY_VAL, 10.0)
-            Plot!!.setDomainStep(StepMode.INCREMENT_BY_VAL, 60.0)
+            Plot!!.setRangeStep(StepMode.INCREMENT_BY_VAL, 20.0)
+            Plot!!.setDomainStep(StepMode.INCREMENT_BY_VAL, 1000.0)
 
             // y-axis labels
             Plot!!.getGraph().setLineLabelEdges(XYGraphWidget.Edge.LEFT, XYGraphWidget.Edge.BOTTOM)
@@ -86,11 +85,11 @@ class AudioPlotter (private var mActivity: MainActivity?, private var Plot: XYPl
         newPlotter.Plot = plot
         newPlotter.mActivity = this.mActivity
 
-        newPlotter.formatterHR = this.formatterHR
-        newPlotter.seriesHR = this.seriesHR
+        newPlotter.formatterAudio = this.formatterAudio
+        newPlotter.seriesAudio = this.seriesAudio
 
         try {
-            newPlotter.Plot!!.addSeries(seriesHR, formatterHR)
+            newPlotter.Plot!!.addSeries(seriesAudio, formatterAudio)
             newPlotter.setupPlot()
         } catch (ex: Exception) {
             Log.e(TAG, "trouble setting up new hr plot")
@@ -100,18 +99,20 @@ class AudioPlotter (private var mActivity: MainActivity?, private var Plot: XYPl
     }
 
 
-    fun addValues(time: Double, hr: Double) {
-        if (time != null && hr != null) {
-            if (seriesHR!!.size() >= N_TOTAL_POINTS) {
-                seriesHR!!.removeFirst()
+    fun addValues(time: Double, audioSample: Double) {
+
+
+        if (time != null && audioSample != null) {
+            if (seriesAudio!!.size() >= N_TOTAL_POINTS) {
+                seriesAudio!!.removeFirst()
             }
-            seriesHR!!.addLast(time, hr)
+            seriesAudio!!.addLast(time, audioSample)
         }
 
-        if(time < xMin) { xMin = time }
-        if(time > xMax) { xMax = time }
-        if(hr < yMin) { yMin = Math.floor(hr/10.0)*10.0 }
-        if(hr > yMax) { yMax = hr }
+        //if(time < xMin) { xMin = time }
+        //if(time > xMax) { xMax = time }
+        //if(audioSample < yMin) { yMin = Math.floor(audioSample/10.0)*10.0 }
+        //if(audioSample > yMax) { yMax = audioSample }
 
         update()
     }
@@ -119,7 +120,7 @@ class AudioPlotter (private var mActivity: MainActivity?, private var Plot: XYPl
     fun updateBoundaries() {
         Plot!!.setDomainBoundaries(10.0, BoundaryMode.AUTO, 10.0, BoundaryMode.AUTO)
 
-        Plot!!.setDomainStep(StepMode.INCREMENT_BY_VAL, 3000.0)
+        Plot!!.setDomainStep(StepMode.INCREMENT_BY_VAL, 1000.0)
 
         Plot!!.setRangeBoundaries(yMin, yMax, BoundaryMode.FIXED)
     }
@@ -131,7 +132,7 @@ class AudioPlotter (private var mActivity: MainActivity?, private var Plot: XYPl
     }
 
     fun clear() {
-        seriesHR!!.clear()
+        seriesAudio!!.clear()
         update()
     }
 

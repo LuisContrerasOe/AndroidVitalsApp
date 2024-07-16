@@ -29,6 +29,8 @@ class HRplotter (private var mActivity: MainActivity?, private var Plot: XYPlot?
         private const val N_TOTAL_POINTS: Int = 150*60*25   // maximum number of data points
     }
 
+
+
     private var formatterHR: XYSeriesFormatter<XYRegionFormatter>? = null
     var seriesHR: SimpleXYSeries? = null
 

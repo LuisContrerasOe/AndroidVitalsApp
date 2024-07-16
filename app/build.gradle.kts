@@ -45,6 +45,7 @@ dependencies {
     implementation("com.androidplot:androidplot-core:1.5.10")
     implementation("com.github.polarofficial:polar-ble-sdk:5.5.0")
     implementation("com.github.wendykierp:JTransforms:3.1")
+    implementation("org.apache.commons:commons-math3:3.6.1")
     implementation("io.reactivex.rxjava3:rxjava:3.1.6")
     implementation("io.reactivex.rxjava3:rxandroid:3.0.2")
     implementation(libs.androidx.core.ktx)

@@ -65,7 +65,26 @@
             android:layout_width="match_parent"
             android:layout_height="100dp"
             android:layout_marginTop="60dp"
- />
+            style="@style/APDefacto.Light"
+            app:rangeTitle="dB"
+            app:domainTitle="Seconds"
+            app:rangeTitleTextColor="@color/red"
+            app:graphBackgroundColor="@color/white"
+            app:gridBackgroundColor="@color/grayE"
+            app:backgroundColor="@color/white"
+            app:domainOriginLineThickness="1dp"
+            app:rangeOriginLineThickness="1dp"
+            app:domainTitleHeight="0dp"
+            app:graphMarginBottom="5dp"
+            app:graphMarginLeft="17dp"
+            app:graphMarginTop="15dp"
+            app:graphMarginRight="0dp"
+            app:lineLabelAlignBottom="center"
+            app:lineLabelRotationBottom="0.0"
+            app:lineLabelInsetBottom="2dp"
+            app:rangeTitleTextSize="20dp"
+            android:layout_weight="0.7"
+            app:renderMode="use_background_thread"/>
 
 
 

@@ -57,6 +57,11 @@ import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.round
 import kotlin.math.sqrt
+import org.apache.commons.math3.complex.Complex
+import org.apache.commons.math3.transform.DftNormalization
+import org.apache.commons.math3.transform.FastFourierTransformer
+import org.apache.commons.math3.transform.TransformType
+
 
 typealias LumaListener = (luma: Double) -> Unit
 
@@ -84,6 +89,7 @@ class MainActivity : AppCompatActivity() {
 
 
     private lateinit var cameraExecutor: ExecutorService
+
 
 
     companion object {
@@ -475,6 +481,7 @@ class MainActivity : AppCompatActivity() {
             var intervalBufferOffset = 0
             val maximumBuffer = ShortArray(MAXIMUM_BUFFER_SIZE)
             var maximumBufferOffset = 0
+            val micTimerOffset = System.currentTimeMillis().toDouble()
 
             while (isRecordingMic) {
                 val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
@@ -486,14 +493,28 @@ class MainActivity : AppCompatActivity() {
                 if (read > 0) {
                     val amplitude = sum / read
                     val decibel = 20 * log10(sqrt(amplitude))
-                    val timestamp = System.currentTimeMillis().toDouble()
+                    val timestamp = System.currentTimeMillis().toDouble() - micTimerOffset;
 
+                    // Apply band-pass filter
+                    val filteredBuffer = applyBandPassFilter(buffer, SAMPLE_RATE, 300.0, 1000.0)
+
+                    var sumFilteredSum = 0.0
+                    for (i in filteredBuffer.indices) {
+                        sumFilteredSum += filteredBuffer[i] * filteredBuffer[i]
+                    }
+
+                    val filteredAmplitude = sumFilteredSum / read
+                    var filteredDecibel = 20 * log10(sqrt(filteredAmplitude))
+
+                    if(filteredDecibel < 0){
+                        filteredDecibel = 0.0
+                    }
 
                     withContext(Dispatchers.Main) {
-                        progressBar.progress = decibel.toInt()
-                        decibelText.text = String.format("Decibel Level: %.2f dB", decibel)
+                        progressBar.progress = filteredDecibel.toInt()
+                        decibelText.text = String.format("Decibel Level: %.2f dB", filteredDecibel)
 
-                        audioPlotter!!.addValues(timestamp, decibel)
+                        audioPlotter!!.addValues(timestamp, filteredDecibel)
                     }
 
                     /*if (intervalBufferOffset + read < intervalBuffer.size) {
@@ -527,6 +548,47 @@ class MainActivity : AppCompatActivity() {
         }
 
     }
+
+    private fun nextPowerOf2(n: Int): Int {
+        var n = n
+        n--
+        n = n or (n shr 1)
+        n = n or (n shr 2)
+        n = n or (n shr 4)
+        n = n or (n shr 8)
+        n = n or (n shr 16)
+        n++
+        return n
+    }
+
+    private fun applyBandPassFilter(buffer: ShortArray, sampleRate: Int, lowCutoff: Double, highCutoff: Double): ShortArray {
+        val transformer = FastFourierTransformer(DftNormalization.STANDARD)
+        val originalLength = buffer.size
+        val paddedLength = nextPowerOf2(originalLength)
+
+        // Pad buffer to the next power of 2
+        val paddedBuffer = DoubleArray(paddedLength)
+        for (i in buffer.indices) {
+            paddedBuffer[i] = buffer[i].toDouble()
+        }
+
+        val transformed = transformer.transform(paddedBuffer, TransformType.FORWARD)
+
+        val filtered = transformed.mapIndexed { index, value ->
+            val frequency = index * sampleRate.toDouble() / paddedLength
+            if (frequency in lowCutoff..highCutoff) {
+                value
+            } else {
+                Complex(0.0, 0.0)
+            }
+        }.toTypedArray()
+
+        val inverseTransformed = transformer.transform(filtered, TransformType.INVERSE)
+
+        // Trim the result to the original buffer length
+        return inverseTransformed.take(originalLength).map { it.real.toInt().toShort() }.toShortArray()
+    }
+
 
     private fun switchMicrophone() {
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
