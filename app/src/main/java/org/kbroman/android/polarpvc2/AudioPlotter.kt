@@ -56,7 +56,7 @@ class AudioPlotter (private var mActivity: MainActivity?, private var Plot: XYPl
 
             // x-axis labels as times
             Plot!!.getGraph().getLineLabelStyle(XYGraphWidget.Edge.BOTTOM).setFormat( object : Format() {
-                private val formatter = SimpleDateFormat("ss")
+                private val formatter = SimpleDateFormat("mm:ss")
 
                 override fun format(
                     obj: Any?,

@@ -7,22 +7,36 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/white"
-    app:layout_constraintStart_toStartOf="parent"
-    android:layout_marginStart="0dp"
     android:layout_marginTop="0dp"
-    app:layout_constraintTop_toTopOf="parent"
     android:theme="@style/ThemeOverlay.AppCompat.Light">
 
-    <androidx.camera.view.PreviewView
-        android:id="@+id/viewFinder"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1" >
+
+        <androidx.camera.view.PreviewView
+            android:id="@+id/viewFinder"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_weight="1" />
+
+        <EditText
+            android:id="@+id/nameEditText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|left"
+            android:hint="Enter name"
+            android:layout_marginTop="50dp"
+            android:padding="8dp"
+            android:background="@android:color/white"
+            android:textColor="@android:color/black" />
+    </FrameLayout>
+
 
     <FrameLayout android:id="@+id/microphone_preview"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="0.6">
+        android:layout_height="200dp">
 
         <ProgressBar
             android:id="@+id/progressBar"
@@ -35,10 +49,9 @@
             android:id="@+id/switchMicButton"
             android:layout_width="100dp"
             android:layout_height="45dp"
-
             android:layout_marginTop="20dp"
-            android:layout_marginLeft="300dp"
-            android:textSize="10sp"
+            android:layout_gravity="right"
+            android:textSize="9sp"
             android:text="Switch Microphone"/>
 
         <TextView
@@ -63,8 +76,8 @@
         <com.androidplot.xy.XYPlot
             android:id="@+id/grafico"
             android:layout_width="match_parent"
-            android:layout_height="100dp"
-            android:layout_marginTop="60dp"
+            android:layout_height="140dp"
+            android:layout_gravity="bottom"
             style="@style/APDefacto.Light"
             app:rangeTitle="dB"
             app:domainTitle="Seconds"
@@ -75,7 +88,7 @@
             app:domainOriginLineThickness="1dp"
             app:rangeOriginLineThickness="1dp"
             app:domainTitleHeight="0dp"
-            app:graphMarginBottom="5dp"
+            app:graphMarginBottom="20dp"
             app:graphMarginLeft="17dp"
             app:graphMarginTop="15dp"
             app:graphMarginRight="0dp"
@@ -83,98 +96,88 @@
             app:lineLabelRotationBottom="0.0"
             app:lineLabelInsetBottom="2dp"
             app:rangeTitleTextSize="20dp"
-            android:layout_weight="0.7"
             app:renderMode="use_background_thread"/>
 
 
 
     </FrameLayout>
 
-    <androidx.constraintlayout.widget.ConstraintLayout
+    <RelativeLayout
         android:id="@+id/main"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="0.25">
+        android:layout_height="40dp"
+        android:background="@color/white"
+        android:layout_marginTop="0dp"
+        android:paddingTop="0dp">
 
         <Switch
             android:id="@+id/connect_switch"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="5dp"
-            android:layout_marginTop="5dp"
+            android:layout_alignParentTop="true"
             android:text="@string/connect_text"
             android:textColor="@color/black"
-            android:textSize="13sp"
-            app:layout_constraintBaseline_toBaselineOf="@+id/record_switch"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
+            android:textSize="13sp" />
 
         <Switch
             android:id="@+id/record_switch"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="5dp"
-            android:layout_marginTop="5dp"
+            android:layout_alignParentTop="true"
             android:text="@string/record_text"
+            android:visibility="gone"
             android:textColor="@color/black"
-            android:textSize="13sp"
-            app:layout_constraintStart_toEndOf="@+id/connect_switch"
-            app:layout_constraintTop_toTopOf="parent" />
+            android:textSize="13sp" />
 
         <TextView
             android:id="@+id/device_textView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="5dp"
+            android:layout_alignParentTop="true"
+            android:layout_alignParentRight="true"
             android:text="No device"
             android:textColor="@color/black"
             android:textSize="12sp"
-            app:layout_constraintStart_toStartOf="@+id/battery_textView"
-            app:layout_constraintTop_toTopOf="parent" />
+            android:layout_marginRight="10dp" />
 
         <TextView
             android:id="@+id/battery_textView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:layout_marginEnd="5dp"
+            android:layout_alignParentTop="true"
             android:text="Battery level n/a"
             android:textColor="@color/black"
             android:textSize="12sp"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/device_textView" />
+            android:layout_marginRight="10dp"
+            android:layout_toLeftOf="@+id/device_textView"/>
 
         <TextView
             android:id="@+id/hr_textView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="20dp"
-            android:layout_marginTop="20dp"
+            android:layout_alignParentTop="true"
             android:text="HR"
             android:textColor="@color/red"
             android:textSize="15sp"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
+            android:layout_marginLeft="10dp"
+            android:layout_toRightOf="@+id/connect_switch"/>
 
         <TextView
             android:id="@+id/pvc_textView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
             android:text="PVC"
+            android:visibility="gone"
             android:textColor="@color/blue"
-            android:textSize="15sp"
-            app:layout_constraintStart_toStartOf="@+id/record_switch"
-            app:layout_constraintTop_toTopOf="parent" />
-
-    </androidx.constraintlayout.widget.ConstraintLayout>
+            android:textSize="15sp" />
+    </RelativeLayout>
 
     <com.androidplot.xy.XYPlot
         android:id="@+id/ecgplot"
         style="@style/FullScreenGraph.Minimalist"
         android:layout_width="fill_parent"
         android:layout_height="0dp"
-        android:layout_weight="0.1"
+        android:layout_weight="0.2"
         app:graphBackgroundColor="@color/grayE"
         app:gridBackgroundColor="@color/grayE"
         app:graphPaddingBottom="0dp"
@@ -229,7 +232,7 @@
         app:rangeTitleTextSize="20dp"
         android:layout_width="fill_parent"
         android:layout_height="0dp"
-        android:layout_weight="0.7"
+        android:layout_weight="0.5"
         app:renderMode="use_background_thread"/>
 
     <TextView
@@ -238,6 +241,6 @@
         android:layout_height="0dp"
         android:layout_weight="0.07"
         android:text="LMAO"
-        tools:visibility="gone" />
+        android:visibility="gone" />
 
 </LinearLayout>

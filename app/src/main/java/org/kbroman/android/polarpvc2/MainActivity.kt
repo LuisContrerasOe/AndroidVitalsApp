@@ -48,6 +48,7 @@ import kotlinx.coroutines.withContext
 import org.kbroman.android.polarpvc2.databinding.ActivityMainBinding
 import java.util.Calendar
 import java.util.Date
+import java.util.Locale
 import java.util.TimeZone
 import java.util.UUID
 import java.util.concurrent.ExecutorService
@@ -61,6 +62,16 @@ import org.apache.commons.math3.complex.Complex
 import org.apache.commons.math3.transform.DftNormalization
 import org.apache.commons.math3.transform.FastFourierTransformer
 import org.apache.commons.math3.transform.TransformType
+
+import android.os.Environment
+import android.widget.EditText
+import java.io.BufferedWriter
+import java.io.File
+import java.io.FileWriter
+import java.io.IOException
+import java.text.SimpleDateFormat
+
+
 
 
 typealias LumaListener = (luma: Double) -> Unit
@@ -78,10 +89,11 @@ class MainActivity : AppCompatActivity() {
     private var HRplot: XYPlot? = null
     private var PVCplot: XYPlot? = null
     private var AudioPlot: XYPlot? = null
-
+    private var nameEditText: EditText? = null
     private var audioRecordBreath: AudioRecord? = null
     private var isRecordingMicBreath = false
 
+    private val PERMISSION_REQUEST_CODE_WRITE = 1
 
     private lateinit var progressBar: ProgressBar
     private lateinit var decibelText: TextView
@@ -89,6 +101,10 @@ class MainActivity : AppCompatActivity() {
 
 
     private lateinit var cameraExecutor: ExecutorService
+
+
+    private val data = mutableListOf<Pair<Long, Int>>()  // List to store time and number data
+
 
 
 
@@ -154,14 +170,7 @@ class MainActivity : AppCompatActivity() {
 
         cameraExecutor = Executors.newSingleThreadExecutor()
 
-
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
-        }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)  // try to keep screen on
-
         ECGplot = findViewById(R.id.ecgplot)
         HRplot = findViewById(R.id.hrplot)
         PVCplot = findViewById(R.id.pvcplot)
@@ -171,6 +180,8 @@ class MainActivity : AppCompatActivity() {
         breathingFrequencyText = findViewById(R.id.breathingFrequencyText)
         AudioPlot = findViewById(R.id.grafico);
         switchMicButton = findViewById(R.id.switchMicButton)
+        nameEditText = findViewById(R.id.nameEditText)
+
 
         switchMicButton.setText("Start Recording");
 
@@ -187,6 +198,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             //startRecordingMic()
         }
+
 
 
         api.setPolarFilter(false)
@@ -414,6 +426,20 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+    private fun checkWritePermissions() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                PERMISSION_REQUEST_CODE
+            )
+        }
+    }
+
+
+
     private fun requestMicrophonePermission() {
         if (ActivityCompat.checkSelfPermission(
                 this,
@@ -424,6 +450,11 @@ class MainActivity : AppCompatActivity() {
         } else {
             //StartRecordingMic()
         }
+    }
+
+    private fun getFormattedDateTime(): String {
+        val dateFormat = SimpleDateFormat("dd_MM_yyyy_HH_mm_ss", Locale.getDefault())
+        return dateFormat.format(Date())
     }
 
 
@@ -438,6 +469,10 @@ class MainActivity : AppCompatActivity() {
     private val MAXIMUM_BUFFER_SIZE = SAMPLE_RATE * 2 * 9 // 3 seconds of audio data
     private var isUsingBluetoothMic = false
     private lateinit var switchMicButton: Button
+
+    private var writer: BufferedWriter? = null
+    private val writerLock = Any()
+    private var hr_bpmTemp: Double? = 0.0
 
     @SuppressLint("MissingPermission")
     private fun startRecordingMic() {
@@ -456,6 +491,23 @@ class MainActivity : AppCompatActivity() {
             )
             .setBufferSizeInBytes(BUFFER_SIZE_BREATH)
             .build()
+
+        // Get the formatted date and time
+        val formattedDateTime = getFormattedDateTime()
+
+        val name = nameEditText?.text.toString().replace("\\s".toRegex(), "_") // Replace spaces with underscores
+
+        // Create the file name
+        val fileName = "Datos_de_${name}_$formattedDateTime.csv"
+
+        val downloadsDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val file = File(downloadsDirectory, fileName)
+
+        // Open the file and write the header
+        synchronized(writerLock) {
+            writer = BufferedWriter(FileWriter(file))
+            writer?.append("Time,Number,HR\n")
+        }
 
         /*
         var bluetoothMicSource = null as AudioDeviceInfo?
@@ -513,8 +565,8 @@ class MainActivity : AppCompatActivity() {
                     withContext(Dispatchers.Main) {
                         progressBar.progress = filteredDecibel.toInt()
                         decibelText.text = String.format("Decibel Level: %.2f dB", filteredDecibel)
-
                         audioPlotter!!.addValues(timestamp, filteredDecibel)
+                        recordData(timestamp, filteredDecibel)
                     }
 
                     /*if (intervalBufferOffset + read < intervalBuffer.size) {
@@ -547,6 +599,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+    }
+
+    fun recordData(time: Double, number: Double) {
+        synchronized(writerLock) {
+            writer?.append("$time,$number,$hr_bpmTemp\n")
+        }
     }
 
     private fun nextPowerOf2(n: Int): Int {
@@ -723,6 +781,11 @@ class MainActivity : AppCompatActivity() {
     private fun stopRecording() {
         audioRecord?.let {
             isRecordingMic = false
+            synchronized(writerLock) {
+                writer?.flush()
+                writer?.close()
+                writer = null
+            }
             it.stop()
             it.release()
             audioRecord = null
@@ -871,6 +934,7 @@ class MainActivity : AppCompatActivity() {
 
                             if (pd.rrData.size() > 10) {
                                 // add to hr and pvc plots
+                                hr_bpmTemp = hr_bpm;
                                 hrPlotter!!.addValues(pd.rrData.lastTime, hr_bpm)
                                 pvcPlotter!!.addValues(pd.pvcData.lastTime, pvc_ave)
                             }
