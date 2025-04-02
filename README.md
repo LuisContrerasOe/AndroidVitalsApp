@@ -8,7 +8,7 @@ It uses the [Polar SDK](https://github.com/polarofficial/polar-ble-sdk) and
 
 I adapted much of the code, from the [AndroidPolarPVC2](https://github.com/kbroman/AndroidPolarPVC2) app, and it's references. Also learned a lot from it.
 
-The Device ID is hard-coded in [`MainActivity.kt`](https://github.com/LuisContrerasOe/AndroidVitalsApp/blob/main/app/src/main/java/org/kbroman/android/polarpvc2/MainActivity.kt#L35).
+The Device ID is hard-coded in [`MainActivity.kt`](https://github.com/LuisContrerasOe/AndroidVitalsApp/blob/main/app/src/main/java/org/kbroman/android/polarpvc2/MainActivity.kt#L82).
 
 ---
 
